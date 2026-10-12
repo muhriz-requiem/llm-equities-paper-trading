@@ -1,0 +1,46 @@
+# --- Secrets ---
+# The original .env holds Alpaca + OpenRouter keys, an EDGAR identity and two market-data
+# API keys. It is gitignored and was never committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa
+.netrc
+credentials*
+*secrets*.json
+
+# --- Python artifacts ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# --- Runtime state ---
+# Append-only SQLite decision/session audit log (regenerates on run).
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+# --- Bulk market-data cache (~28 MB of OHLCV JSON, rebuilt from yfinance) ---
+data/cache/
+
+# --- Regenerable backtest grid output (the largest is 831 KB of per-day detail) ---
+data/portfolio_backtest_max.json
+data/backtest_walkforward.json
+data/volume_gate_sweep*.json
+data/universe_sp400.json
+
+# --- Orchestration task boards (machine-local) ---
+.agent/
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
