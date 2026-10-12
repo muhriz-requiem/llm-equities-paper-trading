@@ -1,6 +1,89 @@
-# project_main
+# LLM-driven equities paper-trading pipeline
 
-LLM-driven paper-trading pipeline for equities. Fetches market data, runs quant signals + AI analysts through bull/bear debate, applies deterministic risk veto, sizes orders, submits to Alpaca paper API.
+**The result is negative. The strategy does not survive transaction costs.**
+
+Four isolated LLM analysts propose trades, a bull/bear debate runs, a deterministic
+risk veto gates the outcome, and an eight-factor sizer picks a position. It was tested
+against SPY over two years with realistic costs, and it lost. This repository is
+published because the negative result is more interesting than the pipeline.
+
+| 2-year backtest, stake 0.20, 10 bps round-trip, 28 names | Portfolio | SPY |
+|---|---|---|
+| Total return | **−5.4%** | +33.8% |
+| Sharpe | **−0.40** | 1.23 |
+| Max drawdown | −12.8% | −18.6% |
+
+Daily-return correlation: **0.07**. The sleeve is roughly uncorrelated with the index
+and underperforms it — it is not a diversifier that happened to lag.
+
+Three results, in the order they mattered:
+
+| Measure | n | Win rate | Sharpe | Verdict |
+|---|---|---|---|---|
+| Cost-free BUY side (2y) | 1123 | 0.489 | 0.84 | Kelly 0.086 — an edge, before costs |
+| With ~16 bps round-trip | 1123 | 0.489 | — | **Kelly `None`, `usable: false`** |
+| Portfolio vs SPY | 368 days | — | **−0.40** | Loses money |
+
+The signal is real and the signal is not tradable. The cost model is
+`spread_bps + 2 × slippage_bps` = 10 + 2(3) = **16 bps**, and that is enough to erase
+it. `src/backtest/costs.py:22-31`.
+
+## The correction that mattered more than the result
+
+`concerns.txt` #13 records the most useful thing this project produced — a retraction:
+
+> the claim "replay.py passes the full OHLCV frame so the volume gate works in
+> backtests" was true for close-mode replays but **NOT for the overnight replay** — it
+> rebuilt the signal frame with a lowercase `volume` column, which `generate_signal`
+> cannot see, **pinning volume_z to 0.0 in overnight backtests while live gated on real
+> volume z-scores**... Consequence: the previously promoted primary Kelly (+0.127 on
+> n=1592) was measured on a population live would partially have blocked.
+
+A favourable number was withdrawn because the backtest and the live path had silently
+diverged. The refreshed primary stats (`data/backtest_stats.json`) show
+`kelly_fraction: null, usable: false`.
+
+## What actually ran
+
+**246 real decisions were logged. Zero orders were placed.** The `decisions` table holds
+246 non-fixture rows; `session_actions` is empty. Signal distribution: 198 HOLD, 48 SELL,
+0 BUY. The paper-trading path was exercised but never submitted an order.
+
+That is why this is a research result and not a track record.
+
+## Architecture
+
+```
+yfinance (cached) → quant signals (z-score + momentum + vol, 3 fail-open BUY gates)
+    → regime classifier (VIX term structure, DXY, credit, breadth → panic|risk_off|neutral)
+    → 4 isolated LLM analysts (fundamental / technical / sentiment / macro)
+    → bull/bear debate
+    → deterministic risk veto (citations, position cap, insider cluster, put skew)
+    → fixed-fractional sizing × 8 factors + inverse-vol parity + Kelly
+    → Alpaca paper
+```
+
+**Information isolation is enforced structurally**: each analyst's prompt is rendered
+from exactly one slice of the input (`src/agents/analysts.py`), so a report can only
+cite evidence it actually had.
+
+An optional `--with-pairs` branch adds cointegration screening over the S&P 400 with a
+persisted pair book. It shares the same equity/sector/correlation caps as single-leg
+positions, and pair legs are appended last, so they are skipped first when the shared
+budget binds.
+
+## Tests
+
+666 test functions across 46 files. **34 of the 46 self-skip at import** — this project
+was built tests-first, so a test file for an unimplemented module skips rather than
+fails. The 666 figure is a dev-machine count, not a fresh-clone run.
+
+## Below here: the original project README
+
+Everything under this line is the internal documentation, kept unmodified for the audit
+trail — CLI reference, runbook, cost model details, and the full backtest history.
+
+---
 
 ## Quick Start
 
@@ -409,10 +492,11 @@ minus today's submitted BUY notional.  Ctrl+C is safe (state persists
 per action).
 
 `python -m src.cli overnight [--submit]` implements the halo/overnight-
-drift cycle validated by `backtest --mode overnight` (BUY-side edge is
-positive; SELL-side is not): entries are the top `OVERNIGHT_MAX_NAMES`
-approved BUYs by confidence, sized with the BUY-side overnight Kelly
-stats (separate stats file — overnight experiments never feed intraday
+drift cycle exercised by `backtest --mode overnight` (**BUY-side is negative after
+costs** — `data/backtest_stats.json` reports `sharpe: -0.575`, `kelly_fraction: null`,
+`usable: false`; the cost-free replay is positive, the cost-adjusted one is not): entries
+are the top `OVERNIGHT_MAX_NAMES` approved BUYs by confidence, sized with the BUY-side
+overnight Kelly stats (separate stats file — overnight experiments never feed intraday
 sizing), submitted in the last `--entry-before-close` minutes; exits are
 mechanical next-open sales at held quantity (from
 `--exit-after-open-utc`), idempotent across restarts because entries
